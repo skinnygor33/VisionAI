@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
 
 
 def load_data(path):
@@ -58,5 +59,12 @@ def get_train_test(df):
 
     return train_test_split(X, y, test_size=0.2, random_state=42)
 
-def save_processed_data(df, path="Users/emiliamacarenarodriguezlavarriosarriaga/Desktop/AIFO/VisionAI/data/processed/clean_creditcard.csv"):
+def save_processed_data(df, path):
     df.to_csv(path, index=False)
+
+
+
+def normalize(df, columns):
+    scaler = MinMaxScaler()
+    df[columns] = scaler.fit_transform(df[columns])
+    return df
