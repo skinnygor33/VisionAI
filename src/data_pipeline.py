@@ -12,11 +12,10 @@ def load_data(path):
 
 def clean_data(df):
     # Ensure 'Time' and 'Amount' are numeric
-    df["Time"] = pd.to_numeric(df['cd "Time"'], errors="coerce")
+    df['cd "Time"'] = pd.to_numeric(df['cd "Time"'], errors="coerce")
     df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
-
     # Drop rows with invalid values (very few if any)
-    df = df.dropna()
+    df = df.dropna(how='any', axis=0)
 
     return df
 
