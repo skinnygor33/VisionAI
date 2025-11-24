@@ -7,7 +7,10 @@ import os
 import time
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.impute import SimpleImputer
+import json
 #from src.data_pipeline import load_data, clean_data, feature_engineering, get_train_test, save_processed_data, normalize # type: ignore
+#from src.supervised_model import apply_PCA
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SUP_MODEL_PATH = os.path.join(BASE_DIR, "..", "models", "supervised_learning_model.pkl")
@@ -18,7 +21,7 @@ app = FastAPI(title="Fraud Detection API")
 
 # Transaction Schema
 class Transaction(BaseModel):
-    Time: float
+    cd_Time: float
     V1: float
     V2: float
     V3: float
@@ -76,30 +79,27 @@ def normalize(df, cols):
     return df
 
 def preprocess_batch(df_batch):
+    df_batch = df_batch.rename(columns={"cd_Time": 'cd "Time"'})
+    cols_v = [f"V{i}" for i in range(1, 29)]
+    
     df_batch = clean_data(df_batch)
     df_batch = feature_engineering(df_batch)
-    cols = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10", "V11", "V12", "V13", "V14", "V15", "V16", "V17", "V18", "V19", "V20", "V21", "V22", "V23", "V24", "V25", "V26", "V27", "V28"]
-    df_batch = normalize(df_batch, cols)
+    pca_cols = cols_v + ["Amount", "hour_of_day", "is_night", 
+                         "amount_zscore", "log_amount", "amount_percentile",
+                         "pca_sum", "pca_abs_sum", "amount_above_95th",
+                         "time_cycle_sin", "time_cycle_cos"]
+    imputer = SimpleImputer(strategy="mean")
+    df_batch[pca_cols] = imputer.fit_transform(df_batch[pca_cols])
+    df_batch = normalize(df_batch, cols_v)
+    
     return df_batch
 
 def apply_pca(df_batch, n_components=15):
-    # Seleccionar todas las columnas finales que el modelo supervisado espera
-    pca_cols = sup_features  # sup_features debe contener las ~40 columnas finales
-    n_comp = min(n_components, df_batch.shape[0], len(pca_cols))
+    n_comp = min(n_components, df_batch.shape[0], len(sup_features))
     pca = PCA(n_components=n_comp)
     return pca.fit_transform(df_batch)
 
-
-def preprocess_supervised_batch(df_batch, n_components=15):
-    df_batch = df_batch.reindex(columns=sup_features, fill_value=0)
-    n_comp = min(n_components, df_batch.shape[0], df_batch.shape[1])
-    pca = PCA(n_components=n_comp)
-    df_pca = pca.fit_transform(df_batch)
-    return df_pca
-
-
-    
-# Load Models Once at Startup
+# event startup
 @app.on_event("startup")
 def load_models():
     global sup_model, anom_model, sup_features
@@ -107,14 +107,11 @@ def load_models():
     sup_model = joblib.load(SUP_MODEL_PATH)
     anom_model = joblib.load(ANOM_MODEL_PATH)
 
-    sup_features = None
-    try:
-        sup_features = sup_model.feature_names_in_.tolist()
-    except:
-        print("No se pudo extraer feature_names_in_ del modelo supervisado")
+    with open(os.path.join(BASE_DIR, "..", "notebooks", "sup_features.json"), "r") as f:
+        sup_features = json.load(f)
 
     print("Models loaded successfully.")
-    print("Supervised model expects:", sup_features)
+    #print("Supervised model expects:", sup_features)
 
 
 @app.post("/predict_batch")
@@ -123,6 +120,9 @@ def predict_batch(transactions: list[Transaction]):
         start = time.time()
         df_batch = pd.DataFrame([tx.dict() for tx in transactions])
 
+        print("\nCOLUMNS RECEIVED BY API:", df_batch.columns.tolist())
+        print("RAW DATA SAMPLE:")
+        print(df_batch.head())
         # Pipeline completo
         df_processed = preprocess_batch(df_batch)
         X_supervised = apply_pca(df_processed, n_components=15)
@@ -154,7 +154,6 @@ def predict_batch(transactions: list[Transaction]):
         print(e)
         traceback.print_exc()
         return {"error": str(e)}
-
 
 @app.get("/")
 def root():
